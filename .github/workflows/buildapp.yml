@@ -10,31 +10,57 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15           # ← THIS LINE IS THE FIX
+    runs-on: macos-15  # Updated for 2025 compatibility
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive  # Ensures all tweaks (SponsorBlock, etc.) load
+
+      - name: Setup theos
+        run: |
+          git clone --depth 1 https://github.com/theos/theos.git
+          echo $GITHUB_WORKSPACE/theos/bin >> $GITHUB_PATH
 
       - name: Download YouTube IPA
         run: |
-          curl -L -o YouTube.ipa "${{ inputs.youtube_ipa_url }}"
+          curl -L -o YouTube.ipa "${{ github.event.inputs.youtube_ipa_url }}"
+
+      - name: Verify IPA
+        run: |
+          if [ ! -f YouTube.ipa ]; then
+            echo "Failed to download IPA"
+            exit 1
+          fi
+          unzip -l YouTube.ipa | head -10  # Quick check
 
       - name: Build YTLitePlus
         run: |
           chmod +x ./build.sh
-          ./build.sh
+          ./build.sh YouTube.ipa
+
+      - name: Check for output
+        run: |
+          if [ ! -f packages/*.ipa ]; then
+            echo "Build failed: No IPA in packages/"
+            ls -la packages/
+            exit 1
+          fi
 
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: YTLitePlus
+          name: YTLitePlus-IPA
           path: packages/*.ipa
+          retention-days: 7
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
+        if: github.event_name == 'workflow_dispatch'
         with:
           files: packages/*.ipa
-          tag_name: "auto-${{ github.run_number }}"
-          name: "Auto Build ${{ github.run_number }}"
+          tag_name: "v-auto-${{ github.run_number }}"
+          name: "YTLitePlus Auto-Build #${{ github.run_number }}"
+          body: "Built with YouTube IPA from ${{ github.event.inputs.youtube_ipa_url }}"
           draft: false
-          prerelease: false
+          prerelease: true
